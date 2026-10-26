@@ -95,7 +95,8 @@ GLOBAL OPTIONS:
 ## Building
 
 Use Go **1.26.10** (minimum Go 1.26.0). Kubernetes clients and generators are
-pinned to v0.36.5, with Wrangler v3.7.1. Dependencies are vendored.
+pinned to v0.36.5, with Wrangler v3.7.1. Dependencies are managed with `go.mod`
+and `go.sum`; the first build requires network access to download them.
 
 ```sh
 ./scripts/build
@@ -134,7 +135,6 @@ To regenerate Kubernetes clients and controllers after changing API types:
 ```sh
 go generate .
 go mod tidy
-go mod vendor
 ```
 
 ### Kubernetes API compatibility tests
