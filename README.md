@@ -1,6 +1,12 @@
 klum - Kubernetes Lazy User Manager
 ========
 
+![AI-assisted development](https://img.shields.io/badge/development-AI--assisted-blue)
+
+This fork is developed with AI assistance. AI tools help prepare code changes,
+tests, and documentation; maintainers remain responsible for reviewing and
+validating contributions before merging.
+
 klum does the following basic tasks:
 
 * Create/Delete/Modify users
