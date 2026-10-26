@@ -1,5 +1,5 @@
 /*
-Copyright 2020 Rancher Labs, Inc.
+Copyright 2026 Rancher Labs, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,238 +20,54 @@ package v1alpha1
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	v1alpha1 "github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
-	clientset "github.com/ibuildthecloud/klum/pkg/generated/clientset/versioned/typed/klum.cattle.io/v1alpha1"
-	informers "github.com/ibuildthecloud/klum/pkg/generated/informers/externalversions/klum.cattle.io/v1alpha1"
-	listers "github.com/ibuildthecloud/klum/pkg/generated/listers/klum.cattle.io/v1alpha1"
-	"github.com/rancher/wrangler/pkg/apply"
-	"github.com/rancher/wrangler/pkg/condition"
-	"github.com/rancher/wrangler/pkg/generic"
+	"github.com/rancher/wrangler/v3/pkg/apply"
+	"github.com/rancher/wrangler/v3/pkg/condition"
+	"github.com/rancher/wrangler/v3/pkg/generic"
+	"github.com/rancher/wrangler/v3/pkg/kv"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/tools/cache"
 )
 
-type UserHandler func(string, *v1alpha1.User) (*v1alpha1.User, error)
-
+// UserController interface for managing User resources.
 type UserController interface {
-	generic.ControllerMeta
-	UserClient
-
-	OnChange(ctx context.Context, name string, sync UserHandler)
-	OnRemove(ctx context.Context, name string, sync UserHandler)
-	Enqueue(name string)
-	EnqueueAfter(name string, duration time.Duration)
-
-	Cache() UserCache
+	generic.NonNamespacedControllerInterface[*v1alpha1.User, *v1alpha1.UserList]
 }
 
+// UserClient interface for managing User resources in Kubernetes.
 type UserClient interface {
-	Create(*v1alpha1.User) (*v1alpha1.User, error)
-	Update(*v1alpha1.User) (*v1alpha1.User, error)
-	UpdateStatus(*v1alpha1.User) (*v1alpha1.User, error)
-	Delete(name string, options *metav1.DeleteOptions) error
-	Get(name string, options metav1.GetOptions) (*v1alpha1.User, error)
-	List(opts metav1.ListOptions) (*v1alpha1.UserList, error)
-	Watch(opts metav1.ListOptions) (watch.Interface, error)
-	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1alpha1.User, err error)
+	generic.NonNamespacedClientInterface[*v1alpha1.User, *v1alpha1.UserList]
 }
 
+// UserCache interface for retrieving User resources in memory.
 type UserCache interface {
-	Get(name string) (*v1alpha1.User, error)
-	List(selector labels.Selector) ([]*v1alpha1.User, error)
-
-	AddIndexer(indexName string, indexer UserIndexer)
-	GetByIndex(indexName, key string) ([]*v1alpha1.User, error)
+	generic.NonNamespacedCacheInterface[*v1alpha1.User]
 }
 
-type UserIndexer func(obj *v1alpha1.User) ([]string, error)
-
-type userController struct {
-	controllerManager *generic.ControllerManager
-	clientGetter      clientset.UsersGetter
-	informer          informers.UserInformer
-	gvk               schema.GroupVersionKind
-}
-
-func NewUserController(gvk schema.GroupVersionKind, controllerManager *generic.ControllerManager, clientGetter clientset.UsersGetter, informer informers.UserInformer) UserController {
-	return &userController{
-		controllerManager: controllerManager,
-		clientGetter:      clientGetter,
-		informer:          informer,
-		gvk:               gvk,
-	}
-}
-
-func FromUserHandlerToHandler(sync UserHandler) generic.Handler {
-	return func(key string, obj runtime.Object) (ret runtime.Object, err error) {
-		var v *v1alpha1.User
-		if obj == nil {
-			v, err = sync(key, nil)
-		} else {
-			v, err = sync(key, obj.(*v1alpha1.User))
-		}
-		if v == nil {
-			return nil, err
-		}
-		return v, err
-	}
-}
-
-func (c *userController) Updater() generic.Updater {
-	return func(obj runtime.Object) (runtime.Object, error) {
-		newObj, err := c.Update(obj.(*v1alpha1.User))
-		if newObj == nil {
-			return nil, err
-		}
-		return newObj, err
-	}
-}
-
-func UpdateUserDeepCopyOnChange(client UserClient, obj *v1alpha1.User, handler func(obj *v1alpha1.User) (*v1alpha1.User, error)) (*v1alpha1.User, error) {
-	if obj == nil {
-		return obj, nil
-	}
-
-	copyObj := obj.DeepCopy()
-	newObj, err := handler(copyObj)
-	if newObj != nil {
-		copyObj = newObj
-	}
-	if obj.ResourceVersion == copyObj.ResourceVersion && !equality.Semantic.DeepEqual(obj, copyObj) {
-		return client.Update(copyObj)
-	}
-
-	return copyObj, err
-}
-
-func (c *userController) AddGenericHandler(ctx context.Context, name string, handler generic.Handler) {
-	c.controllerManager.AddHandler(ctx, c.gvk, c.informer.Informer(), name, handler)
-}
-
-func (c *userController) AddGenericRemoveHandler(ctx context.Context, name string, handler generic.Handler) {
-	removeHandler := generic.NewRemoveHandler(name, c.Updater(), handler)
-	c.controllerManager.AddHandler(ctx, c.gvk, c.informer.Informer(), name, removeHandler)
-}
-
-func (c *userController) OnChange(ctx context.Context, name string, sync UserHandler) {
-	c.AddGenericHandler(ctx, name, FromUserHandlerToHandler(sync))
-}
-
-func (c *userController) OnRemove(ctx context.Context, name string, sync UserHandler) {
-	removeHandler := generic.NewRemoveHandler(name, c.Updater(), FromUserHandlerToHandler(sync))
-	c.AddGenericHandler(ctx, name, removeHandler)
-}
-
-func (c *userController) Enqueue(name string) {
-	c.controllerManager.Enqueue(c.gvk, c.informer.Informer(), "", name)
-}
-
-func (c *userController) EnqueueAfter(name string, duration time.Duration) {
-	c.controllerManager.EnqueueAfter(c.gvk, c.informer.Informer(), "", name, duration)
-}
-
-func (c *userController) Informer() cache.SharedIndexInformer {
-	return c.informer.Informer()
-}
-
-func (c *userController) GroupVersionKind() schema.GroupVersionKind {
-	return c.gvk
-}
-
-func (c *userController) Cache() UserCache {
-	return &userCache{
-		lister:  c.informer.Lister(),
-		indexer: c.informer.Informer().GetIndexer(),
-	}
-}
-
-func (c *userController) Create(obj *v1alpha1.User) (*v1alpha1.User, error) {
-	return c.clientGetter.Users().Create(obj)
-}
-
-func (c *userController) Update(obj *v1alpha1.User) (*v1alpha1.User, error) {
-	return c.clientGetter.Users().Update(obj)
-}
-
-func (c *userController) UpdateStatus(obj *v1alpha1.User) (*v1alpha1.User, error) {
-	return c.clientGetter.Users().UpdateStatus(obj)
-}
-
-func (c *userController) Delete(name string, options *metav1.DeleteOptions) error {
-	return c.clientGetter.Users().Delete(name, options)
-}
-
-func (c *userController) Get(name string, options metav1.GetOptions) (*v1alpha1.User, error) {
-	return c.clientGetter.Users().Get(name, options)
-}
-
-func (c *userController) List(opts metav1.ListOptions) (*v1alpha1.UserList, error) {
-	return c.clientGetter.Users().List(opts)
-}
-
-func (c *userController) Watch(opts metav1.ListOptions) (watch.Interface, error) {
-	return c.clientGetter.Users().Watch(opts)
-}
-
-func (c *userController) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1alpha1.User, err error) {
-	return c.clientGetter.Users().Patch(name, pt, data, subresources...)
-}
-
-type userCache struct {
-	lister  listers.UserLister
-	indexer cache.Indexer
-}
-
-func (c *userCache) Get(name string) (*v1alpha1.User, error) {
-	return c.lister.Get(name)
-}
-
-func (c *userCache) List(selector labels.Selector) ([]*v1alpha1.User, error) {
-	return c.lister.List(selector)
-}
-
-func (c *userCache) AddIndexer(indexName string, indexer UserIndexer) {
-	utilruntime.Must(c.indexer.AddIndexers(map[string]cache.IndexFunc{
-		indexName: func(obj interface{}) (strings []string, e error) {
-			return indexer(obj.(*v1alpha1.User))
-		},
-	}))
-}
-
-func (c *userCache) GetByIndex(indexName, key string) (result []*v1alpha1.User, err error) {
-	objs, err := c.indexer.ByIndex(indexName, key)
-	if err != nil {
-		return nil, err
-	}
-	for _, obj := range objs {
-		result = append(result, obj.(*v1alpha1.User))
-	}
-	return result, nil
-}
-
+// UserStatusHandler is executed for every added or modified User. Should return the new status to be updated
 type UserStatusHandler func(obj *v1alpha1.User, status v1alpha1.UserStatus) (v1alpha1.UserStatus, error)
 
+// UserGeneratingHandler is the top-level handler that is executed for every User event. It extends UserStatusHandler by a returning a slice of child objects to be passed to apply.Apply
 type UserGeneratingHandler func(obj *v1alpha1.User, status v1alpha1.UserStatus) ([]runtime.Object, v1alpha1.UserStatus, error)
 
+// RegisterUserStatusHandler configures a UserController to execute a UserStatusHandler for every events observed.
+// If a non-empty condition is provided, it will be updated in the status conditions for every handler execution
 func RegisterUserStatusHandler(ctx context.Context, controller UserController, condition condition.Cond, name string, handler UserStatusHandler) {
 	statusHandler := &userStatusHandler{
 		client:    controller,
 		condition: condition,
 		handler:   handler,
 	}
-	controller.AddGenericHandler(ctx, name, FromUserHandlerToHandler(statusHandler.sync))
+	controller.AddGenericHandler(ctx, name, generic.FromObjectHandlerToHandler(statusHandler.sync))
 }
 
+// RegisterUserGeneratingHandler configures a UserController to execute a UserGeneratingHandler for every events observed, passing the returned objects to the provided apply.Apply.
+// If a non-empty condition is provided, it will be updated in the status conditions for every handler execution
 func RegisterUserGeneratingHandler(ctx context.Context, controller UserController, apply apply.Apply,
 	condition condition.Cond, name string, handler UserGeneratingHandler, opts *generic.GeneratingHandlerOptions) {
 	statusHandler := &userGeneratingHandler{
@@ -263,6 +79,7 @@ func RegisterUserGeneratingHandler(ctx context.Context, controller UserControlle
 	if opts != nil {
 		statusHandler.opts = *opts
 	}
+	controller.OnChange(ctx, name, statusHandler.Remove)
 	RegisterUserStatusHandler(ctx, controller, condition, name, statusHandler.Handle)
 }
 
@@ -272,12 +89,13 @@ type userStatusHandler struct {
 	handler   UserStatusHandler
 }
 
+// sync is executed on every resource addition or modification. Executes the configured handlers and sends the updated status to the Kubernetes API
 func (a *userStatusHandler) sync(key string, obj *v1alpha1.User) (*v1alpha1.User, error) {
 	if obj == nil {
 		return obj, nil
 	}
 
-	origStatus := obj.Status
+	origStatus := obj.Status.DeepCopy()
 	obj = obj.DeepCopy()
 	newStatus, err := a.handler(obj, obj.Status)
 	if err != nil {
@@ -285,19 +103,27 @@ func (a *userStatusHandler) sync(key string, obj *v1alpha1.User) (*v1alpha1.User
 		newStatus = *origStatus.DeepCopy()
 	}
 
-	obj.Status = newStatus
 	if a.condition != "" {
 		if errors.IsConflict(err) {
-			a.condition.SetError(obj, "", nil)
+			a.condition.SetError(&newStatus, "", nil)
 		} else {
-			a.condition.SetError(obj, "", err)
+			a.condition.SetError(&newStatus, "", err)
 		}
 	}
-	if !equality.Semantic.DeepEqual(origStatus, obj.Status) {
+	if !equality.Semantic.DeepEqual(origStatus, &newStatus) {
+		if a.condition != "" {
+			// Since status has changed, update the lastUpdatedTime
+			a.condition.LastUpdated(&newStatus, time.Now().UTC().Format(time.RFC3339))
+		}
+
 		var newErr error
-		obj, newErr = a.client.UpdateStatus(obj)
+		obj.Status = newStatus
+		newObj, newErr := a.client.UpdateStatus(obj)
 		if err == nil {
 			err = newErr
+		}
+		if newErr == nil {
+			obj = newObj
 		}
 	}
 	return obj, err
@@ -309,32 +135,74 @@ type userGeneratingHandler struct {
 	opts  generic.GeneratingHandlerOptions
 	gvk   schema.GroupVersionKind
 	name  string
+	seen  sync.Map
 }
 
+// Remove handles the observed deletion of a resource, cascade deleting every associated resource previously applied
+func (a *userGeneratingHandler) Remove(key string, obj *v1alpha1.User) (*v1alpha1.User, error) {
+	if obj != nil {
+		return obj, nil
+	}
+
+	obj = &v1alpha1.User{}
+	obj.Namespace, obj.Name = kv.RSplit(key, "/")
+	obj.SetGroupVersionKind(a.gvk)
+
+	if a.opts.UniqueApplyForResourceVersion {
+		a.seen.Delete(key)
+	}
+
+	return nil, generic.ConfigureApplyForObject(a.apply, obj, &a.opts).
+		WithOwner(obj).
+		WithSetID(a.name).
+		ApplyObjects()
+}
+
+// Handle executes the configured UserGeneratingHandler and pass the resulting objects to apply.Apply, finally returning the new status of the resource
 func (a *userGeneratingHandler) Handle(obj *v1alpha1.User, status v1alpha1.UserStatus) (v1alpha1.UserStatus, error) {
+	if !obj.DeletionTimestamp.IsZero() {
+		return status, nil
+	}
+
 	objs, newStatus, err := a.UserGeneratingHandler(obj, status)
 	if err != nil {
 		return newStatus, err
 	}
-
-	apply := a.apply
-
-	if !a.opts.DynamicLookup {
-		apply = apply.WithStrictCaching()
+	if !a.isNewResourceVersion(obj) {
+		return newStatus, nil
 	}
 
-	if !a.opts.AllowCrossNamespace && !a.opts.AllowClusterScoped {
-		apply = apply.WithSetOwnerReference(true, false).
-			WithDefaultNamespace(obj.GetNamespace()).
-			WithListerNamespace(obj.GetNamespace())
-	}
-
-	if !a.opts.AllowClusterScoped {
-		apply = apply.WithRestrictClusterScoped()
-	}
-
-	return newStatus, apply.
+	err = generic.ConfigureApplyForObject(a.apply, obj, &a.opts).
 		WithOwner(obj).
 		WithSetID(a.name).
 		ApplyObjects(objs...)
+	if err != nil {
+		return newStatus, err
+	}
+	a.storeResourceVersion(obj)
+	return newStatus, nil
+}
+
+// isNewResourceVersion detects if a specific resource version was already successfully processed.
+// Only used if UniqueApplyForResourceVersion is set in generic.GeneratingHandlerOptions
+func (a *userGeneratingHandler) isNewResourceVersion(obj *v1alpha1.User) bool {
+	if !a.opts.UniqueApplyForResourceVersion {
+		return true
+	}
+
+	// Apply once per resource version
+	key := obj.Namespace + "/" + obj.Name
+	previous, ok := a.seen.Load(key)
+	return !ok || previous != obj.ResourceVersion
+}
+
+// storeResourceVersion keeps track of the latest resource version of an object for which Apply was executed
+// Only used if UniqueApplyForResourceVersion is set in generic.GeneratingHandlerOptions
+func (a *userGeneratingHandler) storeResourceVersion(obj *v1alpha1.User) {
+	if !a.opts.UniqueApplyForResourceVersion {
+		return
+	}
+
+	key := obj.Namespace + "/" + obj.Name
+	a.seen.Store(key, obj.ResourceVersion)
 }

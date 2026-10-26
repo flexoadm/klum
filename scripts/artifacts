@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source ./scripts/version
+
+mkdir -p dist/artifacts
+cp "${BUILD_OUTPUT:-bin/klum}" "dist/artifacts/klum${SUFFIX}"

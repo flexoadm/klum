@@ -1,5 +1,5 @@
 /*
-Copyright 2020 Rancher Labs, Inc.
+Copyright 2026 Rancher Labs, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,112 +20,29 @@ package fake
 
 import (
 	v1alpha1 "github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	labels "k8s.io/apimachinery/pkg/labels"
-	schema "k8s.io/apimachinery/pkg/runtime/schema"
-	types "k8s.io/apimachinery/pkg/types"
-	watch "k8s.io/apimachinery/pkg/watch"
-	testing "k8s.io/client-go/testing"
+	klumcattleiov1alpha1 "github.com/ibuildthecloud/klum/pkg/generated/clientset/versioned/typed/klum.cattle.io/v1alpha1"
+	gentype "k8s.io/client-go/gentype"
 )
 
-// FakeUsers implements UserInterface
-type FakeUsers struct {
+// fakeUsers implements UserInterface
+type fakeUsers struct {
+	*gentype.FakeClientWithList[*v1alpha1.User, *v1alpha1.UserList]
 	Fake *FakeKlumV1alpha1
 }
 
-var usersResource = schema.GroupVersionResource{Group: "klum.cattle.io", Version: "v1alpha1", Resource: "users"}
-
-var usersKind = schema.GroupVersionKind{Group: "klum.cattle.io", Version: "v1alpha1", Kind: "User"}
-
-// Get takes name of the user, and returns the corresponding user object, and an error if there is any.
-func (c *FakeUsers) Get(name string, options v1.GetOptions) (result *v1alpha1.User, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootGetAction(usersResource, name), &v1alpha1.User{})
-	if obj == nil {
-		return nil, err
+func newFakeUsers(fake *FakeKlumV1alpha1) klumcattleiov1alpha1.UserInterface {
+	return &fakeUsers{
+		gentype.NewFakeClientWithList[*v1alpha1.User, *v1alpha1.UserList](
+			fake.Fake,
+			"",
+			v1alpha1.SchemeGroupVersion.WithResource("users"),
+			v1alpha1.SchemeGroupVersion.WithKind("User"),
+			func() *v1alpha1.User { return &v1alpha1.User{} },
+			func() *v1alpha1.UserList { return &v1alpha1.UserList{} },
+			func(dst, src *v1alpha1.UserList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.UserList) []*v1alpha1.User { return gentype.ToPointerSlice(list.Items) },
+			func(list *v1alpha1.UserList, items []*v1alpha1.User) { list.Items = gentype.FromPointerSlice(items) },
+		),
+		fake,
 	}
-	return obj.(*v1alpha1.User), err
-}
-
-// List takes label and field selectors, and returns the list of Users that match those selectors.
-func (c *FakeUsers) List(opts v1.ListOptions) (result *v1alpha1.UserList, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootListAction(usersResource, usersKind, opts), &v1alpha1.UserList{})
-	if obj == nil {
-		return nil, err
-	}
-
-	label, _, _ := testing.ExtractFromListOptions(opts)
-	if label == nil {
-		label = labels.Everything()
-	}
-	list := &v1alpha1.UserList{ListMeta: obj.(*v1alpha1.UserList).ListMeta}
-	for _, item := range obj.(*v1alpha1.UserList).Items {
-		if label.Matches(labels.Set(item.Labels)) {
-			list.Items = append(list.Items, item)
-		}
-	}
-	return list, err
-}
-
-// Watch returns a watch.Interface that watches the requested users.
-func (c *FakeUsers) Watch(opts v1.ListOptions) (watch.Interface, error) {
-	return c.Fake.
-		InvokesWatch(testing.NewRootWatchAction(usersResource, opts))
-}
-
-// Create takes the representation of a user and creates it.  Returns the server's representation of the user, and an error, if there is any.
-func (c *FakeUsers) Create(user *v1alpha1.User) (result *v1alpha1.User, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootCreateAction(usersResource, user), &v1alpha1.User{})
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.User), err
-}
-
-// Update takes the representation of a user and updates it. Returns the server's representation of the user, and an error, if there is any.
-func (c *FakeUsers) Update(user *v1alpha1.User) (result *v1alpha1.User, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateAction(usersResource, user), &v1alpha1.User{})
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.User), err
-}
-
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *FakeUsers) UpdateStatus(user *v1alpha1.User) (*v1alpha1.User, error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateSubresourceAction(usersResource, "status", user), &v1alpha1.User{})
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.User), err
-}
-
-// Delete takes name of the user and deletes it. Returns an error if one occurs.
-func (c *FakeUsers) Delete(name string, options *v1.DeleteOptions) error {
-	_, err := c.Fake.
-		Invokes(testing.NewRootDeleteAction(usersResource, name), &v1alpha1.User{})
-	return err
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *FakeUsers) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
-	action := testing.NewRootDeleteCollectionAction(usersResource, listOptions)
-
-	_, err := c.Fake.Invokes(action, &v1alpha1.UserList{})
-	return err
-}
-
-// Patch applies the patch and returns the patched user.
-func (c *FakeUsers) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1alpha1.User, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceAction(usersResource, name, pt, data, subresources...), &v1alpha1.User{})
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.User), err
 }

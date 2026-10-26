@@ -1,5 +1,5 @@
 /*
-Copyright 2020 Rancher Labs, Inc.
+Copyright 2026 Rancher Labs, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,11 +29,11 @@ type FakeKlumV1alpha1 struct {
 }
 
 func (c *FakeKlumV1alpha1) Kubeconfigs() v1alpha1.KubeconfigInterface {
-	return &FakeKubeconfigs{c}
+	return newFakeKubeconfigs(c)
 }
 
 func (c *FakeKlumV1alpha1) Users() v1alpha1.UserInterface {
-	return &FakeUsers{c}
+	return newFakeUsers(c)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

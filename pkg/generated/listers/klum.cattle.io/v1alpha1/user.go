@@ -1,5 +1,5 @@
 /*
-Copyright 2020 Rancher Labs, Inc.
+Copyright 2026 Rancher Labs, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,47 +19,30 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1alpha1 "github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/cache"
+	klumcattleiov1alpha1 "github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
 )
 
 // UserLister helps list Users.
+// All objects returned here must be treated as read-only.
 type UserLister interface {
 	// List lists all Users in the indexer.
-	List(selector labels.Selector) (ret []*v1alpha1.User, err error)
+	// Objects returned here must be treated as read-only.
+	List(selector labels.Selector) (ret []*klumcattleiov1alpha1.User, err error)
 	// Get retrieves the User from the index for a given name.
-	Get(name string) (*v1alpha1.User, error)
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*klumcattleiov1alpha1.User, error)
 	UserListerExpansion
 }
 
 // userLister implements the UserLister interface.
 type userLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*klumcattleiov1alpha1.User]
 }
 
 // NewUserLister returns a new UserLister.
 func NewUserLister(indexer cache.Indexer) UserLister {
-	return &userLister{indexer: indexer}
-}
-
-// List lists all Users in the indexer.
-func (s *userLister) List(selector labels.Selector) (ret []*v1alpha1.User, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.User))
-	})
-	return ret, err
-}
-
-// Get retrieves the User from the index for a given name.
-func (s *userLister) Get(name string) (*v1alpha1.User, error) {
-	obj, exists, err := s.indexer.GetByKey(name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("user"), name)
-	}
-	return obj.(*v1alpha1.User), nil
+	return &userLister{listers.New[*klumcattleiov1alpha1.User](indexer, klumcattleiov1alpha1.Resource("user"))}
 }

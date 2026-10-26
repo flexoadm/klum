@@ -1,5 +1,5 @@
 /*
-Copyright 2020 Rancher Labs, Inc.
+Copyright 2026 Rancher Labs, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,14 +19,16 @@ limitations under the License.
 package v1alpha1
 
 import (
+	context "context"
 	time "time"
 
-	klumcattleiov1alpha1 "github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
+	apisklumcattleiov1alpha1 "github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
 	versioned "github.com/ibuildthecloud/klum/pkg/generated/clientset/versioned"
 	internalinterfaces "github.com/ibuildthecloud/klum/pkg/generated/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/ibuildthecloud/klum/pkg/generated/listers/klum.cattle.io/v1alpha1"
+	klumcattleiov1alpha1 "github.com/ibuildthecloud/klum/pkg/generated/listers/klum.cattle.io/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 )
@@ -35,7 +37,7 @@ import (
 // Kubeconfigs.
 type KubeconfigInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.KubeconfigLister
+	Lister() klumcattleiov1alpha1.KubeconfigLister
 }
 
 type kubeconfigInformer struct {
@@ -47,42 +49,67 @@ type kubeconfigInformer struct {
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
 func NewKubeconfigInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredKubeconfigInformer(client, resyncPeriod, indexers, nil)
+	return NewKubeconfigInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
 }
 
 // NewFilteredKubeconfigInformer constructs a new informer for Kubeconfig type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredKubeconfigInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
-			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
+	return NewKubeconfigInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewKubeconfigInformerWithOptions constructs a new informer for Kubeconfig type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewKubeconfigInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	gvr := schema.GroupVersionResource{Group: "klum.cattle.io", Version: "v1alpha1", Resource: "kubeconfigs"}
+	identifier := options.InformerName.WithResource(gvr)
+	tweakListOptions := options.TweakListOptions
+	return cache.NewSharedIndexInformerWithOptions(
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
+			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KlumV1alpha1().Kubeconfigs().List(options)
+				return client.KlumV1alpha1().Kubeconfigs().List(context.Background(), opts)
 			},
-			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KlumV1alpha1().Kubeconfigs().Watch(options)
+				return client.KlumV1alpha1().Kubeconfigs().Watch(context.Background(), opts)
 			},
+			ListWithContextFunc: func(ctx context.Context, opts v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&opts)
+				}
+				return client.KlumV1alpha1().Kubeconfigs().List(ctx, opts)
+			},
+			WatchFuncWithContext: func(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&opts)
+				}
+				return client.KlumV1alpha1().Kubeconfigs().Watch(ctx, opts)
+			},
+		}, client),
+		&apisklumcattleiov1alpha1.Kubeconfig{},
+		cache.SharedIndexInformerOptions{
+			ResyncPeriod: options.ResyncPeriod,
+			Indexers:     options.Indexers,
+			Identifier:   identifier,
 		},
-		&klumcattleiov1alpha1.Kubeconfig{},
-		resyncPeriod,
-		indexers,
 	)
 }
 
 func (f *kubeconfigInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredKubeconfigInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewKubeconfigInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *kubeconfigInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&klumcattleiov1alpha1.Kubeconfig{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisklumcattleiov1alpha1.Kubeconfig{}, f.defaultInformer)
 }
 
-func (f *kubeconfigInformer) Lister() v1alpha1.KubeconfigLister {
-	return v1alpha1.NewKubeconfigLister(f.Informer().GetIndexer())
+func (f *kubeconfigInformer) Lister() klumcattleiov1alpha1.KubeconfigLister {
+	return klumcattleiov1alpha1.NewKubeconfigLister(f.Informer().GetIndexer())
 }

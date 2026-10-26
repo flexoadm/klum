@@ -1,21 +1,13 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-cd $(dirname $0)/..
+cd "$(dirname "$0")/.."
 
 echo Running validation
-
-PACKAGES="$(go list ./...)"
-
-if ! command -v golangci-lint; then
-    echo Skipping validation: no golangci-lint available
-    exit
+go vet ./...
+files=$(gofmt -l main.go pkg tests)
+if [ -n "$files" ]; then
+    echo "Files need gofmt:"
+    echo "$files"
+    exit 1
 fi
-
-echo Running validation
-
-echo Running: golangci-lint
-golangci-lint run
-
-echo Running: go fmt
-test -z "$(go fmt ${PACKAGES} | tee /dev/stderr)"

@@ -4,19 +4,18 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 
 	"github.com/ibuildthecloud/klum/pkg/controllers/user"
 	"github.com/ibuildthecloud/klum/pkg/crd"
 	"github.com/ibuildthecloud/klum/pkg/generated/controllers/klum.cattle.io"
-	"github.com/rancher/wrangler-api/pkg/generated/controllers/core"
-	"github.com/rancher/wrangler-api/pkg/generated/controllers/rbac"
-	"github.com/rancher/wrangler/pkg/apply"
-	"github.com/rancher/wrangler/pkg/kubeconfig"
-	"github.com/rancher/wrangler/pkg/signals"
-	"github.com/rancher/wrangler/pkg/start"
+	"github.com/rancher/wrangler/v3/pkg/apply"
+	"github.com/rancher/wrangler/v3/pkg/generated/controllers/core"
+	"github.com/rancher/wrangler/v3/pkg/generated/controllers/rbac"
+	"github.com/rancher/wrangler/v3/pkg/kubeconfig"
+	"github.com/rancher/wrangler/v3/pkg/signals"
+	"github.com/rancher/wrangler/v3/pkg/start"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -83,7 +82,7 @@ func main() {
 
 func run(c *cli.Context) error {
 	logrus.Info("Starting klum controller")
-	ctx := signals.SetupSignalHandler(context.Background())
+	ctx := signals.SetupSignalContext()
 
 	restConfig, err := kubeconfig.GetNonInteractiveClientConfig(kubeConfig).ClientConfig()
 	if err != nil {
@@ -111,7 +110,7 @@ func run(c *cli.Context) error {
 
 	apply, err := apply.NewForConfig(restConfig)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	user.Register(ctx,

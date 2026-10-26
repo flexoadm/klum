@@ -1,15 +1,12 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+cd "$(dirname "$0")/.."
 
-cd $(dirname $0)/..
-
-go generate
-
-source ./scripts/version
-
-if [ -n "$DIRTY" ]; then
-    echo Git is dirty
-    git status
-    git diff
+go generate .
+git diff --exit-code -- pkg/apis pkg/generated
+untracked=$(git ls-files --others --exclude-standard -- pkg/apis pkg/generated)
+if [ -n "$untracked" ]; then
+    echo "Generated files are not tracked:"
+    echo "$untracked"
     exit 1
 fi
