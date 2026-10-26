@@ -2,10 +2,8 @@ name: CI and release
 
 on:
   push:
-    branches: ['**']
     tags: ['v*']
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,6 +18,7 @@ env:
 
 jobs:
   verify:
+    if: github.event_name == 'pull_request'
     name: Checks (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
@@ -67,7 +66,6 @@ jobs:
 
   binaries:
     name: Linux ${{ matrix.arch }}
-    needs: verify
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
@@ -76,17 +74,11 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-24.04
-            goarm: ''
           - arch: arm64
             runner: ubuntu-24.04-arm
-            goarm: ''
-          - arch: arm
-            runner: ubuntu-24.04
-            goarm: '7'
     env:
       GOOS: linux
       GOARCH: ${{ matrix.arch }}
-      GOARM: ${{ matrix.goarm }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -127,13 +119,13 @@ jobs:
         with:
           context: .
           file: package/Dockerfile
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
           outputs: type=oci,dest=${{ runner.temp }}/klum-image.tar
 
   publish:
     name: Publish release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: container
+    needs: binaries
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -177,7 +169,7 @@ jobs:
         with:
           context: .
           file: package/Dockerfile
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.image.outputs.tags }}
           labels: |
