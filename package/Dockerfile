@@ -1,3 +1,4 @@
 FROM scratch
-COPY bin/klum /klum
+ARG TARGETARCH
+COPY --chmod=0755 dist/artifacts/klum-${TARGETARCH} /klum
 CMD ["/klum"]

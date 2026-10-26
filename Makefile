@@ -1,15 +1,11 @@
-TARGETS := $(shell ls scripts)
+.DEFAULT_GOAL := build
 
-.dapper:
-	@echo Downloading dapper
-	@curl -sL https://releases.rancher.com/dapper/latest/dapper-`uname -s`-`uname -m` > .dapper.tmp
-	@@chmod +x .dapper.tmp
-	@./.dapper.tmp -v
-	@mv .dapper.tmp .dapper
+TARGETS := build ci default package test validate validate-ci test-integration
 
-$(TARGETS): .dapper
-	./.dapper $@
+$(TARGETS):
+	./scripts/$@
 
-.DEFAULT_GOAL := default
+generate:
+	go generate .
 
-.PHONY: $(TARGETS)
+.PHONY: $(TARGETS) generate

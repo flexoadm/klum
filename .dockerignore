@@ -1,3 +1,6 @@
-./.dapper
-./.cache
-./dist
+**
+!package
+!package/Dockerfile
+!dist
+!dist/artifacts
+!dist/artifacts/klum-*
