@@ -4,8 +4,8 @@ import (
 	"os"
 
 	"github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
-	controllergen "github.com/rancher/wrangler/pkg/controller-gen"
-	"github.com/rancher/wrangler/pkg/controller-gen/args"
+	controllergen "github.com/rancher/wrangler/v3/pkg/controller-gen"
+	"github.com/rancher/wrangler/v3/pkg/controller-gen/args"
 )
 
 func main() {
@@ -19,7 +19,10 @@ func main() {
 					v1alpha1.User{},
 					v1alpha1.Kubeconfig{},
 				},
-				GenerateTypes: true,
+				GenerateTypes:     true,
+				GenerateClients:   true,
+				GenerateListers:   true,
+				GenerateInformers: true,
 			},
 		},
 	})

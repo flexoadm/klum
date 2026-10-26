@@ -1,5 +1,5 @@
 /*
-Copyright 2020 Rancher Labs, Inc.
+Copyright 2026 Rancher Labs, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,101 +20,31 @@ package fake
 
 import (
 	v1alpha1 "github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	labels "k8s.io/apimachinery/pkg/labels"
-	schema "k8s.io/apimachinery/pkg/runtime/schema"
-	types "k8s.io/apimachinery/pkg/types"
-	watch "k8s.io/apimachinery/pkg/watch"
-	testing "k8s.io/client-go/testing"
+	klumcattleiov1alpha1 "github.com/ibuildthecloud/klum/pkg/generated/clientset/versioned/typed/klum.cattle.io/v1alpha1"
+	gentype "k8s.io/client-go/gentype"
 )
 
-// FakeKubeconfigs implements KubeconfigInterface
-type FakeKubeconfigs struct {
+// fakeKubeconfigs implements KubeconfigInterface
+type fakeKubeconfigs struct {
+	*gentype.FakeClientWithList[*v1alpha1.Kubeconfig, *v1alpha1.KubeconfigList]
 	Fake *FakeKlumV1alpha1
 }
 
-var kubeconfigsResource = schema.GroupVersionResource{Group: "klum.cattle.io", Version: "v1alpha1", Resource: "kubeconfigs"}
-
-var kubeconfigsKind = schema.GroupVersionKind{Group: "klum.cattle.io", Version: "v1alpha1", Kind: "Kubeconfig"}
-
-// Get takes name of the kubeconfig, and returns the corresponding kubeconfig object, and an error if there is any.
-func (c *FakeKubeconfigs) Get(name string, options v1.GetOptions) (result *v1alpha1.Kubeconfig, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootGetAction(kubeconfigsResource, name), &v1alpha1.Kubeconfig{})
-	if obj == nil {
-		return nil, err
+func newFakeKubeconfigs(fake *FakeKlumV1alpha1) klumcattleiov1alpha1.KubeconfigInterface {
+	return &fakeKubeconfigs{
+		gentype.NewFakeClientWithList[*v1alpha1.Kubeconfig, *v1alpha1.KubeconfigList](
+			fake.Fake,
+			"",
+			v1alpha1.SchemeGroupVersion.WithResource("kubeconfigs"),
+			v1alpha1.SchemeGroupVersion.WithKind("Kubeconfig"),
+			func() *v1alpha1.Kubeconfig { return &v1alpha1.Kubeconfig{} },
+			func() *v1alpha1.KubeconfigList { return &v1alpha1.KubeconfigList{} },
+			func(dst, src *v1alpha1.KubeconfigList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.KubeconfigList) []*v1alpha1.Kubeconfig { return gentype.ToPointerSlice(list.Items) },
+			func(list *v1alpha1.KubeconfigList, items []*v1alpha1.Kubeconfig) {
+				list.Items = gentype.FromPointerSlice(items)
+			},
+		),
+		fake,
 	}
-	return obj.(*v1alpha1.Kubeconfig), err
-}
-
-// List takes label and field selectors, and returns the list of Kubeconfigs that match those selectors.
-func (c *FakeKubeconfigs) List(opts v1.ListOptions) (result *v1alpha1.KubeconfigList, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootListAction(kubeconfigsResource, kubeconfigsKind, opts), &v1alpha1.KubeconfigList{})
-	if obj == nil {
-		return nil, err
-	}
-
-	label, _, _ := testing.ExtractFromListOptions(opts)
-	if label == nil {
-		label = labels.Everything()
-	}
-	list := &v1alpha1.KubeconfigList{ListMeta: obj.(*v1alpha1.KubeconfigList).ListMeta}
-	for _, item := range obj.(*v1alpha1.KubeconfigList).Items {
-		if label.Matches(labels.Set(item.Labels)) {
-			list.Items = append(list.Items, item)
-		}
-	}
-	return list, err
-}
-
-// Watch returns a watch.Interface that watches the requested kubeconfigs.
-func (c *FakeKubeconfigs) Watch(opts v1.ListOptions) (watch.Interface, error) {
-	return c.Fake.
-		InvokesWatch(testing.NewRootWatchAction(kubeconfigsResource, opts))
-}
-
-// Create takes the representation of a kubeconfig and creates it.  Returns the server's representation of the kubeconfig, and an error, if there is any.
-func (c *FakeKubeconfigs) Create(kubeconfig *v1alpha1.Kubeconfig) (result *v1alpha1.Kubeconfig, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootCreateAction(kubeconfigsResource, kubeconfig), &v1alpha1.Kubeconfig{})
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.Kubeconfig), err
-}
-
-// Update takes the representation of a kubeconfig and updates it. Returns the server's representation of the kubeconfig, and an error, if there is any.
-func (c *FakeKubeconfigs) Update(kubeconfig *v1alpha1.Kubeconfig) (result *v1alpha1.Kubeconfig, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateAction(kubeconfigsResource, kubeconfig), &v1alpha1.Kubeconfig{})
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.Kubeconfig), err
-}
-
-// Delete takes name of the kubeconfig and deletes it. Returns an error if one occurs.
-func (c *FakeKubeconfigs) Delete(name string, options *v1.DeleteOptions) error {
-	_, err := c.Fake.
-		Invokes(testing.NewRootDeleteAction(kubeconfigsResource, name), &v1alpha1.Kubeconfig{})
-	return err
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *FakeKubeconfigs) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
-	action := testing.NewRootDeleteCollectionAction(kubeconfigsResource, listOptions)
-
-	_, err := c.Fake.Invokes(action, &v1alpha1.KubeconfigList{})
-	return err
-}
-
-// Patch applies the patch and returns the patched kubeconfig.
-func (c *FakeKubeconfigs) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1alpha1.Kubeconfig, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceAction(kubeconfigsResource, name, pt, data, subresources...), &v1alpha1.Kubeconfig{})
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.Kubeconfig), err
 }

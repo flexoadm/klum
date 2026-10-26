@@ -76,6 +76,7 @@ type CustomResourceDefinitionSpec struct {
 	// major version, then minor version. An example sorted list of versions:
 	// v10, v2, v1, v11beta2, v10beta3, v3beta1, v12alpha1, v11alpha2, foo1, foo10.
 	// +optional
+	// +listType=atomic
 	Versions []CustomResourceDefinitionVersion `json:"versions,omitempty" protobuf:"bytes,7,rep,name=versions"`
 	// additionalPrinterColumns specifies additional columns returned in Table output.
 	// See https://kubernetes.io/docs/reference/using-api/api-concepts/#receiving-resources-as-tables for details.
@@ -83,7 +84,16 @@ type CustomResourceDefinitionSpec struct {
 	// Top-level and per-version columns are mutually exclusive.
 	// If no top-level or per-version columns are specified, a single column displaying the age of the custom resource is used.
 	// +optional
+	// +listType=atomic
 	AdditionalPrinterColumns []CustomResourceColumnDefinition `json:"additionalPrinterColumns,omitempty" protobuf:"bytes,8,rep,name=additionalPrinterColumns"`
+
+	// selectableFields specifies paths to fields that may be used as field selectors.
+	// See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors
+	//
+	// +featureGate=CustomResourceFieldSelectors
+	// +optional
+	// +listType=atomic
+	SelectableFields []SelectableField `json:"selectableFields,omitempty" protobuf:"bytes,11,rep,name=selectableFields"`
 
 	// conversion defines conversion settings for the CRD.
 	// +optional
@@ -96,7 +106,7 @@ type CustomResourceDefinitionSpec struct {
 	// Defaults to true in v1beta for backwards compatibility.
 	// Deprecated: will be required to be false in v1. Preservation of unknown fields can be specified
 	// in the validation schema using the `x-kubernetes-preserve-unknown-fields: true` extension.
-	// See https://kubernetes.io/docs/tasks/access-kubernetes-api/custom-resources/custom-resource-definitions/#pruning-versus-preserving-unknown-fields for details.
+	// See https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/#field-pruning for details.
 	// +optional
 	PreserveUnknownFields *bool `json:"preserveUnknownFields,omitempty" protobuf:"varint,10,opt,name=preserveUnknownFields"`
 }
@@ -122,6 +132,7 @@ type CustomResourceConversion struct {
 	// include any versions known to the API Server, calls to the webhook will fail.
 	// Defaults to `["v1beta1"]`.
 	// +optional
+	// +listType=atomic
 	ConversionReviewVersions []string `json:"conversionReviewVersions,omitempty" protobuf:"bytes,3,rep,name=conversionReviewVersions"`
 }
 
@@ -200,6 +211,17 @@ type CustomResourceDefinitionVersion struct {
 	// storage indicates this version should be used when persisting custom resources to storage.
 	// There must be exactly one version with storage=true.
 	Storage bool `json:"storage" protobuf:"varint,3,opt,name=storage"`
+	// deprecated indicates this version of the custom resource API is deprecated.
+	// When set to true, API requests to this version receive a warning header in the server response.
+	// Defaults to false.
+	// +optional
+	Deprecated bool `json:"deprecated,omitempty" protobuf:"varint,7,opt,name=deprecated"`
+	// deprecationWarning overrides the default warning returned to API clients.
+	// May only be set when `deprecated` is true.
+	// The default warning indicates this version is deprecated and recommends use
+	// of the newest served version of equal or greater stability, if one exists.
+	// +optional
+	DeprecationWarning *string `json:"deprecationWarning,omitempty" protobuf:"bytes,8,opt,name=deprecationWarning"`
 	// schema describes the schema used for validation and pruning of this version of the custom resource.
 	// Top-level and per-version schemas are mutually exclusive.
 	// Per-version schemas must not all be set to identical values (top-level validation schema should be used instead).
@@ -216,7 +238,29 @@ type CustomResourceDefinitionVersion struct {
 	// Per-version columns must not all be set to identical values (top-level columns should be used instead).
 	// If no top-level or per-version columns are specified, a single column displaying the age of the custom resource is used.
 	// +optional
+	// +listType=atomic
 	AdditionalPrinterColumns []CustomResourceColumnDefinition `json:"additionalPrinterColumns,omitempty" protobuf:"bytes,6,rep,name=additionalPrinterColumns"`
+
+	// selectableFields specifies paths to fields that may be used as field selectors.
+	// See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors
+	//
+	// +featureGate=CustomResourceFieldSelectors
+	// +optional
+	// +listType=atomic
+	SelectableFields []SelectableField `json:"selectableFields,omitempty" protobuf:"bytes,9,rep,name=selectableFields"`
+}
+
+// SelectableField specifies the JSON path of a field that may be used with field selectors.
+type SelectableField struct {
+	// jsonPath is a simple JSON path which is evaluated against each custom resource to produce a
+	// field selector value.
+	// Only JSON paths without the array notation are allowed.
+	// Must point to a field of type string, boolean or integer. Types with enum values
+	// and strings with formats are allowed.
+	// If jsonPath refers to absent field in a resource, the jsonPath evaluates to an empty string.
+	// Must not point to metdata fields.
+	// Required.
+	JSONPath string `json:"jsonPath" protobuf:"bytes,1,opt,name=jsonPath"`
 }
 
 // CustomResourceColumnDefinition specifies a column for server side printing.
@@ -258,6 +302,7 @@ type CustomResourceDefinitionNames struct {
 	// and used by clients to support invocations like `kubectl get <shortname>`.
 	// It must be all lowercase.
 	// +optional
+	// +listType=atomic
 	ShortNames []string `json:"shortNames,omitempty" protobuf:"bytes,3,opt,name=shortNames"`
 	// kind is the serialized kind of the resource. It is normally CamelCase and singular.
 	// Custom resource instances will use this value as the `kind` attribute in API calls.
@@ -269,6 +314,7 @@ type CustomResourceDefinitionNames struct {
 	// This is published in API discovery documents, and used by clients to support invocations like
 	// `kubectl get all`.
 	// +optional
+	// +listType=atomic
 	Categories []string `json:"categories,omitempty" protobuf:"bytes,6,rep,name=categories"`
 }
 
@@ -344,16 +390,25 @@ type CustomResourceDefinitionCondition struct {
 	// message is a human-readable message indicating details about last transition.
 	// +optional
 	Message string `json:"message,omitempty" protobuf:"bytes,5,opt,name=message"`
+	// observedGeneration represents the .metadata.generation that the condition was set based upon.
+	// For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+	// with respect to the current state of the instance.
+	// +featureGate=CRDObservedGenerationTracking
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty" protobuf:"varint,6,opt,name=observedGeneration"`
 }
 
 // CustomResourceDefinitionStatus indicates the state of the CustomResourceDefinition
 type CustomResourceDefinitionStatus struct {
 	// conditions indicate state for particular aspects of a CustomResourceDefinition
 	// +optional
+	// +listType=map
+	// +listMapKey=type
 	Conditions []CustomResourceDefinitionCondition `json:"conditions" protobuf:"bytes,1,opt,name=conditions"`
 
 	// acceptedNames are the names that are actually being used to serve discovery.
 	// They may be different than the names in spec.
+	// +optional
 	AcceptedNames CustomResourceDefinitionNames `json:"acceptedNames" protobuf:"bytes,2,opt,name=acceptedNames"`
 
 	// storedVersions lists all versions of CustomResources that were ever persisted. Tracking these
@@ -362,7 +417,13 @@ type CustomResourceDefinitionStatus struct {
 	// no old objects are left in storage), and then remove the rest of the
 	// versions from this list.
 	// Versions may not be removed from `spec.versions` while they exist in this list.
+	// +optional
+	// +listType=atomic
 	StoredVersions []string `json:"storedVersions" protobuf:"bytes,3,rep,name=storedVersions"`
+	// The generation observed by the CRD controller.
+	// +featureGate=CRDObservedGenerationTracking
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty" protobuf:"varint,4,opt,name=observedGeneration"`
 }
 
 // CustomResourceCleanupFinalizer is the name of the finalizer which will delete instances of
@@ -372,12 +433,19 @@ const CustomResourceCleanupFinalizer = "customresourcecleanup.apiextensions.k8s.
 // +genclient
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +k8s:prerelease-lifecycle-gen:introduced=1.7
+// +k8s:prerelease-lifecycle-gen:deprecated=1.16
+// +k8s:prerelease-lifecycle-gen:removed=1.22
+// +k8s:prerelease-lifecycle-gen:replacement=apiextensions.k8s.io,v1,CustomResourceDefinition
 
 // CustomResourceDefinition represents a resource that should be exposed on the API server.  Its name MUST be in the format
 // <.spec.name>.<.spec.group>.
-// Deprecated in v1.16, planned for removal in v1.19. Use apiextensions.k8s.io/v1 CustomResourceDefinition instead.
+// Deprecated in v1.16, planned for removal in v1.22. Use apiextensions.k8s.io/v1 CustomResourceDefinition instead.
 type CustomResourceDefinition struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// Standard object's metadata
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// spec describes how the user wants the resources to appear
@@ -388,10 +456,18 @@ type CustomResourceDefinition struct {
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +k8s:prerelease-lifecycle-gen:introduced=1.7
+// +k8s:prerelease-lifecycle-gen:deprecated=1.16
+// +k8s:prerelease-lifecycle-gen:removed=1.22
+// +k8s:prerelease-lifecycle-gen:replacement=apiextensions.k8s.io,v1,CustomResourceDefinitionList
 
 // CustomResourceDefinitionList is a list of CustomResourceDefinition objects.
 type CustomResourceDefinitionList struct {
 	metav1.TypeMeta `json:",inline"`
+
+	// Standard object's metadata
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
+	// +optional
 	metav1.ListMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// items list individual CustomResourceDefinition objects
@@ -452,6 +528,11 @@ type CustomResourceSubresourceScale struct {
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +k8s:prerelease-lifecycle-gen:introduced=1.13
+// +k8s:prerelease-lifecycle-gen:deprecated=1.19
+// This API is never served.  It is used for outbound requests from apiservers.  This will ensure it never gets served accidentally
+// and having the generator against this group will protect future APIs which may be served.
+// +k8s:prerelease-lifecycle-gen:replacement=apiextensions.k8s.io,v1,ConversionReview
 
 // ConversionReview describes a conversion request/response.
 type ConversionReview struct {
@@ -474,6 +555,7 @@ type ConversionRequest struct {
 	// desiredAPIVersion is the version to convert given objects to. e.g. "myapi.example.com/v1"
 	DesiredAPIVersion string `json:"desiredAPIVersion" protobuf:"bytes,2,name=desiredAPIVersion"`
 	// objects is the list of custom resource objects to be converted.
+	// +listType=atomic
 	Objects []runtime.RawExtension `json:"objects" protobuf:"bytes,3,rep,name=objects"`
 }
 
@@ -486,6 +568,7 @@ type ConversionResponse struct {
 	// The webhook is expected to set `apiVersion` of these objects to the `request.desiredAPIVersion`. The list
 	// must also have the same size as the input list with the same objects in the same order (equal kind, metadata.uid, metadata.name and metadata.namespace).
 	// The webhook is allowed to mutate labels and annotations. Any other change to the metadata is silently ignored.
+	// +listType=atomic
 	ConvertedObjects []runtime.RawExtension `json:"convertedObjects" protobuf:"bytes,2,rep,name=convertedObjects"`
 	// result contains the result of conversion with extra details if the conversion failed. `result.status` determines if
 	// the conversion failed or succeeded. The `result.status` field is required and represents the success or failure of the

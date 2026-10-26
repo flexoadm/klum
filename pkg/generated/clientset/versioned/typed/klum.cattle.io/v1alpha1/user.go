@@ -1,5 +1,5 @@
 /*
-Copyright 2020 Rancher Labs, Inc.
+Copyright 2026 Rancher Labs, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,14 +19,14 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"time"
+	context "context"
 
-	v1alpha1 "github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
+	klumcattleiov1alpha1 "github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
 	scheme "github.com/ibuildthecloud/klum/pkg/generated/clientset/versioned/scheme"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	rest "k8s.io/client-go/rest"
+	gentype "k8s.io/client-go/gentype"
 )
 
 // UsersGetter has a method to return a UserInterface.
@@ -37,144 +37,34 @@ type UsersGetter interface {
 
 // UserInterface has methods to work with User resources.
 type UserInterface interface {
-	Create(*v1alpha1.User) (*v1alpha1.User, error)
-	Update(*v1alpha1.User) (*v1alpha1.User, error)
-	UpdateStatus(*v1alpha1.User) (*v1alpha1.User, error)
-	Delete(name string, options *v1.DeleteOptions) error
-	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
-	Get(name string, options v1.GetOptions) (*v1alpha1.User, error)
-	List(opts v1.ListOptions) (*v1alpha1.UserList, error)
-	Watch(opts v1.ListOptions) (watch.Interface, error)
-	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1alpha1.User, err error)
+	Create(ctx context.Context, user *klumcattleiov1alpha1.User, opts v1.CreateOptions) (*klumcattleiov1alpha1.User, error)
+	Update(ctx context.Context, user *klumcattleiov1alpha1.User, opts v1.UpdateOptions) (*klumcattleiov1alpha1.User, error)
+	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
+	UpdateStatus(ctx context.Context, user *klumcattleiov1alpha1.User, opts v1.UpdateOptions) (*klumcattleiov1alpha1.User, error)
+	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
+	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*klumcattleiov1alpha1.User, error)
+	List(ctx context.Context, opts v1.ListOptions) (*klumcattleiov1alpha1.UserList, error)
+	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *klumcattleiov1alpha1.User, err error)
 	UserExpansion
 }
 
 // users implements UserInterface
 type users struct {
-	client rest.Interface
+	*gentype.ClientWithList[*klumcattleiov1alpha1.User, *klumcattleiov1alpha1.UserList]
 }
 
 // newUsers returns a Users
 func newUsers(c *KlumV1alpha1Client) *users {
 	return &users{
-		client: c.RESTClient(),
+		gentype.NewClientWithList[*klumcattleiov1alpha1.User, *klumcattleiov1alpha1.UserList](
+			"users",
+			c.RESTClient(),
+			scheme.ParameterCodec,
+			"",
+			func() *klumcattleiov1alpha1.User { return &klumcattleiov1alpha1.User{} },
+			func() *klumcattleiov1alpha1.UserList { return &klumcattleiov1alpha1.UserList{} },
+		),
 	}
-}
-
-// Get takes name of the user, and returns the corresponding user object, and an error if there is any.
-func (c *users) Get(name string, options v1.GetOptions) (result *v1alpha1.User, err error) {
-	result = &v1alpha1.User{}
-	err = c.client.Get().
-		Resource("users").
-		Name(name).
-		VersionedParams(&options, scheme.ParameterCodec).
-		Do().
-		Into(result)
-	return
-}
-
-// List takes label and field selectors, and returns the list of Users that match those selectors.
-func (c *users) List(opts v1.ListOptions) (result *v1alpha1.UserList, err error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	result = &v1alpha1.UserList{}
-	err = c.client.Get().
-		Resource("users").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Do().
-		Into(result)
-	return
-}
-
-// Watch returns a watch.Interface that watches the requested users.
-func (c *users) Watch(opts v1.ListOptions) (watch.Interface, error) {
-	var timeout time.Duration
-	if opts.TimeoutSeconds != nil {
-		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
-	}
-	opts.Watch = true
-	return c.client.Get().
-		Resource("users").
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Timeout(timeout).
-		Watch()
-}
-
-// Create takes the representation of a user and creates it.  Returns the server's representation of the user, and an error, if there is any.
-func (c *users) Create(user *v1alpha1.User) (result *v1alpha1.User, err error) {
-	result = &v1alpha1.User{}
-	err = c.client.Post().
-		Resource("users").
-		Body(user).
-		Do().
-		Into(result)
-	return
-}
-
-// Update takes the representation of a user and updates it. Returns the server's representation of the user, and an error, if there is any.
-func (c *users) Update(user *v1alpha1.User) (result *v1alpha1.User, err error) {
-	result = &v1alpha1.User{}
-	err = c.client.Put().
-		Resource("users").
-		Name(user.Name).
-		Body(user).
-		Do().
-		Into(result)
-	return
-}
-
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-
-func (c *users) UpdateStatus(user *v1alpha1.User) (result *v1alpha1.User, err error) {
-	result = &v1alpha1.User{}
-	err = c.client.Put().
-		Resource("users").
-		Name(user.Name).
-		SubResource("status").
-		Body(user).
-		Do().
-		Into(result)
-	return
-}
-
-// Delete takes name of the user and deletes it. Returns an error if one occurs.
-func (c *users) Delete(name string, options *v1.DeleteOptions) error {
-	return c.client.Delete().
-		Resource("users").
-		Name(name).
-		Body(options).
-		Do().
-		Error()
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *users) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
-	var timeout time.Duration
-	if listOptions.TimeoutSeconds != nil {
-		timeout = time.Duration(*listOptions.TimeoutSeconds) * time.Second
-	}
-	return c.client.Delete().
-		Resource("users").
-		VersionedParams(&listOptions, scheme.ParameterCodec).
-		Timeout(timeout).
-		Body(options).
-		Do().
-		Error()
-}
-
-// Patch applies the patch and returns the patched user.
-func (c *users) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1alpha1.User, err error) {
-	result = &v1alpha1.User{}
-	err = c.client.Patch(pt).
-		Resource("users").
-		SubResource(subresources...).
-		Name(name).
-		Body(data).
-		Do().
-		Into(result)
-	return
 }

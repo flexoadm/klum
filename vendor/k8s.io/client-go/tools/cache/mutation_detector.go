@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/diff"
@@ -36,9 +36,12 @@ func init() {
 	mutationDetectionEnabled, _ = strconv.ParseBool(os.Getenv("KUBE_CACHE_MUTATION_DETECTOR"))
 }
 
-// MutationDetector is able to monitor if the object be modified outside.
+// MutationDetector is able to monitor objects for mutation within a limited window of time
 type MutationDetector interface {
+	// AddObject adds the given object to the set being monitored for a while from now
 	AddObject(obj interface{})
+
+	// Run starts the monitoring and does not return until the monitoring is stopped.
 	Run(stopCh <-chan struct{})
 }
 
@@ -47,6 +50,7 @@ func NewCacheMutationDetector(name string) MutationDetector {
 	if !mutationDetectionEnabled {
 		return dummyMutationDetector{}
 	}
+	//nolint:logcheck // This code shouldn't be used in production.
 	klog.Warningln("Mutation detector is enabled, this will result in memory leakage.")
 	return &defaultCacheMutationDetector{name: name, period: 1 * time.Second, retainDuration: 2 * time.Minute}
 }
@@ -65,7 +69,13 @@ type defaultCacheMutationDetector struct {
 	name   string
 	period time.Duration
 
-	lock       sync.Mutex
+	// compareLock ensures only a single call to CompareObjects runs at a time
+	compareObjectsLock sync.Mutex
+
+	// addLock guards addedObjs between AddObject and CompareObjects
+	addedObjsLock sync.Mutex
+	addedObjs     []cacheObj
+
 	cachedObjs []cacheObj
 
 	retainDuration     time.Duration
@@ -90,7 +100,7 @@ func (d *defaultCacheMutationDetector) Run(stopCh <-chan struct{}) {
 	for {
 		if d.lastRotated.IsZero() {
 			d.lastRotated = time.Now()
-		} else if time.Now().Sub(d.lastRotated) > d.retainDuration {
+		} else if time.Since(d.lastRotated) > d.retainDuration {
 			d.retainedCachedObjs = d.cachedObjs
 			d.cachedObjs = nil
 			d.lastRotated = time.Now()
@@ -115,15 +125,22 @@ func (d *defaultCacheMutationDetector) AddObject(obj interface{}) {
 	if obj, ok := obj.(runtime.Object); ok {
 		copiedObj := obj.DeepCopyObject()
 
-		d.lock.Lock()
-		defer d.lock.Unlock()
-		d.cachedObjs = append(d.cachedObjs, cacheObj{cached: obj, copied: copiedObj})
+		d.addedObjsLock.Lock()
+		defer d.addedObjsLock.Unlock()
+		d.addedObjs = append(d.addedObjs, cacheObj{cached: obj, copied: copiedObj})
 	}
 }
 
 func (d *defaultCacheMutationDetector) CompareObjects() {
-	d.lock.Lock()
-	defer d.lock.Unlock()
+	d.compareObjectsLock.Lock()
+	defer d.compareObjectsLock.Unlock()
+
+	// move addedObjs into cachedObjs under lock
+	// this keeps the critical section small to avoid blocking AddObject while we compare cachedObjs
+	d.addedObjsLock.Lock()
+	d.cachedObjs = append(d.cachedObjs, d.addedObjs...)
+	d.addedObjs = nil
+	d.addedObjsLock.Unlock()
 
 	altered := false
 	for i, obj := range d.cachedObjs {

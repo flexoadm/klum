@@ -88,7 +88,58 @@ GLOBAL OPTIONS:
 
 ## Building
 
-`make` or just `go build`
+Use Go **1.26.10** (minimum Go 1.26.0). Kubernetes clients and generators are
+pinned to v0.36.5, with Wrangler v3.7.1. Dependencies are vendored.
+
+```sh
+./scripts/build
+# Or build the executable directly:
+go build -o bin/klum .
+```
+
+`make` runs the build inside the Go 1.26.10 Dapper image.
+
+## Local checks
+
+```sh
+./scripts/test
+./scripts/validate
+```
+
+Unit tests cover generated user resources, CRD validation and preservation of API
+fields under structural-schema pruning. Validation runs `go vet` and checks Go
+formatting; it does not require golangci-lint.
+
+To regenerate Kubernetes clients and controllers after changing API types:
+
+```sh
+go generate .
+go mod tidy
+go mod vendor
+```
+
+### Kubernetes API compatibility tests
+
+Install Docker and kind **v0.33.0**, then run:
+
+```sh
+./scripts/test-integration
+```
+
+The script creates and deletes a dedicated cluster for each pinned Kubernetes
+image: **1.33.12, 1.34.8, 1.35.5 and 1.36.1**. It writes kubeconfig into a temporary
+directory and does not use or modify your existing cluster context. Expect image
+downloads on the first run. Both amd64 and arm64 images are supported.
+
+These tests exercise CRD creation and update, the User status subresource,
+generated clients, Kubeconfig persistence, and core/RBAC resource creation against
+real API servers. Unit tests use Kubernetes v0.36.5 validation libraries; the
+cluster matrix checks actual API compatibility across the four minor versions.
+
+This dependency update does **not** fix token Secret auto-generation: the original
+controller still waits for a ServiceAccount token Secret, which modern Kubernetes
+does not create automatically. End-to-end kubeconfig issuance and token rotation
+will be addressed separately; passing these API tests does not verify that flow.
 
 ![](https://media.giphy.com/media/3o7TKGMZHi73yzCumQ/giphy.gif)
 
