@@ -166,9 +166,6 @@ controller still waits for a ServiceAccount token Secret, which modern Kubernete
 does not create automatically. End-to-end kubeconfig issuance and token rotation
 will be addressed separately; passing these API tests does not verify that flow.
 
-![](https://media.giphy.com/media/3o7TKGMZHi73yzCumQ/giphy.gif)
-
-
 ## CI and releases
 
 GitHub Actions is configured in `.github/workflows/ci.yml`. It uses standard
