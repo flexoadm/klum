@@ -183,14 +183,13 @@ GitHub Actions is configured in `.github/workflows/ci.yml`. It uses standard
 GitHub-hosted `ubuntu-24.04` and `ubuntu-24.04-arm` runners. No self-hosted runner,
 Drone server or Dapper installation is required.
 
-On branch pushes, pull requests and manual runs, the workflow:
+On pull request creation and updates, the workflow:
 
 1. Builds, runs unit tests, validates code and checks generated sources on x64
    and ARM64. It also validates the workflow with actionlint.
 2. Runs Kubernetes 1.33–1.36 API tests in four independent kind jobs.
-3. Produces Linux `klum-amd64`, `klum-arm64`, and `klum-arm` (ARMv7) binaries.
-   ARMv7 is cross-compiled on the x64 runner.
-4. Builds an OCI container image for `linux/amd64`, `linux/arm64` and `linux/arm/v7`
+3. Produces Linux `klum-amd64` and `klum-arm64` binaries.
+4. Builds an OCI container image for `linux/amd64` and `linux/arm64`
    from those binaries, without publishing. No QEMU is needed because the image
    has no build-time commands to execute on the target platform.
 
@@ -200,11 +199,14 @@ to commit SHAs.
 
 ### Publishing
 
-A push of a tag such as `v0.1.0` runs the same checks, then publishes:
+Ordinary branch pushes do not trigger this workflow.
+
+A push of a tag such as `v0.1.0` builds the two Linux binaries and publishes
+the release without rerunning tests or the test container build:
 
 - a multi-platform image to `ghcr.io/<owner>/<repository>:v0.1.0`;
 - the `latest` image tag for releases without a prerelease suffix;
-- a GitHub Release containing the three Linux binaries and `SHA256SUMS`.
+- a GitHub Release containing the two Linux binaries and `SHA256SUMS`.
 
 Tags must have the form `vMAJOR.MINOR.PATCH`, optionally followed by a prerelease
 suffix (for example, `v0.1.0-rc.1`). Tags with a prerelease suffix produce GitHub
