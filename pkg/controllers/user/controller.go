@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	klum "github.com/ibuildthecloud/klum/pkg/apis/klum.cattle.io/v1alpha1"
 	"github.com/ibuildthecloud/klum/pkg/generated/controllers/klum.cattle.io/v1alpha1"
@@ -19,7 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type Config struct {
@@ -42,14 +42,15 @@ func Register(ctx context.Context,
 
 	h := &handler{
 		cfg:             cfg,
-		apply:           apply.WithCacheTypes(kconfig),
+		secrets:         secrets.Cache(),
+		users:           user,
 		serviceAccounts: serviceAccount.Cache(),
 	}
 
 	v1alpha1.RegisterUserGeneratingHandler(ctx,
 		user,
 		apply.WithCacheTypes(serviceAccount,
-			crb, rb),
+			crb, rb, secrets, kconfig).WithSetOwnerReference(true, false),
 		"",
 		"klum-user",
 		h.OnUserChange,
@@ -58,12 +59,15 @@ func Register(ctx context.Context,
 		})
 
 	secrets.OnChange(ctx, "klum-secret", h.OnSecretChange)
+	secrets.OnRemove(ctx, "klum-secret-remove", h.OnSecretChange)
+	serviceAccount.OnChange(ctx, "klum-service-account", h.OnServiceAccountChange)
 }
 
 type handler struct {
 	cfg             Config
-	apply           apply.Apply
 	serviceAccounts v1controller.ServiceAccountCache
+	secrets         v1controller.SecretCache
+	users           v1alpha1.UserController
 }
 
 func (h *handler) OnUserChange(user *klum.User, status klum.UserStatus) ([]runtime.Object, klum.UserStatus, error) {
@@ -85,7 +89,66 @@ func (h *handler) OnUserChange(user *klum.User, status klum.UserStatus) ([]runti
 	}
 	objs = append(objs, h.getRoles(user)...)
 
-	return objs, setReady(status, true), nil
+	// Prefer a previously issued token referenced by the SA to preserve existing access.
+	sa, err := h.serviceAccounts.Get(h.cfg.Namespace, user.Name)
+	if err != nil && !errors.IsNotFound(err) {
+		return nil, status, err
+	}
+	var tokenSecret *v1.Secret
+	if sa != nil {
+		for _, ref := range sa.Secrets {
+			candidate, err := h.secrets.Get(sa.Namespace, ref.Name)
+			if errors.IsNotFound(err) {
+				continue
+			}
+			if err != nil {
+				return nil, status, err
+			}
+			if validToken(candidate, sa) {
+				tokenSecret = candidate
+				break
+			}
+		}
+	}
+	secretName := name2.SafeConcatName("klum", user.Name, "token")
+	if tokenSecret == nil || tokenSecret.Name == secretName {
+		desired := &v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        secretName,
+				Namespace:   h.cfg.Namespace,
+				Annotations: map[string]string{v1.ServiceAccountNameKey: user.Name},
+			},
+			Type: v1.SecretTypeServiceAccountToken,
+		}
+		// Do not specify data: the Kubernetes token controller fills it asynchronously.
+		objs = append(objs, desired)
+		candidate, err := h.secrets.Get(h.cfg.Namespace, secretName)
+		if err != nil && !errors.IsNotFound(err) {
+			return nil, status, err
+		}
+		if candidate != nil && (candidate.Type != desired.Type || candidate.Annotations[v1.ServiceAccountNameKey] != user.Name) {
+			return nil, status, fmt.Errorf("token Secret %s/%s belongs to another account or has an unexpected type", h.cfg.Namespace, secretName)
+		}
+		if sa != nil && validToken(candidate, sa) {
+			tokenSecret = candidate
+		}
+	}
+	if tokenSecret == nil {
+		if h.users != nil {
+			h.users.EnqueueAfter(user.Name, 5*time.Second)
+		}
+		status = setReady(status, false)
+		u := &klum.User{Status: status}
+		klum.UserReadyCondition.Reason(u, "WaitingForToken")
+		klum.UserReadyCondition.Message(u, "Waiting for Kubernetes to populate the ServiceAccount token Secret")
+		return objs, u.Status, nil
+	}
+	objs = append(objs, h.kubeconfig(user.Name, tokenSecret))
+	status = setReady(status, true)
+	u := &klum.User{Status: status}
+	klum.UserReadyCondition.Reason(u, "")
+	klum.UserReadyCondition.Message(u, "")
+	return objs, u.Status, nil
 }
 
 func (h *handler) getRoles(user *klum.User) []runtime.Object {
@@ -183,74 +246,80 @@ func name(user, namespace, clusterRole, role string) string {
 	return name2.SafeConcatName("klum", user, role, hex.EncodeToString(suffix[:])[:8])
 }
 
-func (h *handler) OnSecretChange(key string, secret *v1.Secret) (*v1.Secret, error) {
-	if secret == nil {
-		return nil, nil
-	}
+// validToken rejects empty tokens and tokens bound to an older incarnation of the SA.
+func validToken(secret *v1.Secret, sa *v1.ServiceAccount) bool {
+	return secret != nil && sa.UID != "" && secret.Type == v1.SecretTypeServiceAccountToken &&
+		secret.Annotations[v1.ServiceAccountNameKey] == sa.Name &&
+		secret.Annotations[v1.ServiceAccountUIDKey] == string(sa.UID) && len(secret.Data[v1.ServiceAccountTokenKey]) > 0
+}
 
-	if secret.Type != v1.SecretTypeServiceAccountToken {
+func (h *handler) OnServiceAccountChange(key string, sa *v1.ServiceAccount) (*v1.ServiceAccount, error) {
+	if sa != nil && sa.Namespace == h.cfg.Namespace {
+		if userName := sa.Annotations["klum.cattle.io/user"]; userName != "" {
+			h.users.Enqueue(userName)
+		}
+	}
+	return sa, nil
+}
+
+func (h *handler) OnSecretChange(key string, secret *v1.Secret) (*v1.Secret, error) {
+	if secret == nil || secret.Namespace != h.cfg.Namespace || secret.Type != v1.SecretTypeServiceAccountToken {
 		return secret, nil
 	}
-
-	sa, err := h.serviceAccounts.Get(secret.Namespace, secret.Annotations["kubernetes.io/service-account.name"])
+	sa, err := h.serviceAccounts.Get(secret.Namespace, secret.Annotations[v1.ServiceAccountNameKey])
 	if errors.IsNotFound(err) {
 		return secret, nil
-	} else if err != nil {
+	}
+	if err != nil {
 		return secret, err
 	}
-
-	if sa.UID != types.UID(secret.Annotations["kubernetes.io/service-account.uid"]) {
-		return secret, nil
+	if userName := sa.Annotations["klum.cattle.io/user"]; userName != "" {
+		h.users.Enqueue(userName)
 	}
+	return secret, nil
+}
 
-	userName := sa.Annotations["klum.cattle.io/user"]
-	if userName == "" {
-		return secret, nil
-	}
-
+func (h *handler) kubeconfig(userName string, secret *v1.Secret) *klum.Kubeconfig {
 	ca := h.cfg.CA
 	if ca == "" {
 		ca = base64.StdEncoding.EncodeToString(secret.Data["ca.crt"])
 	}
 	token := string(secret.Data["token"])
 
-	return secret, h.apply.
-		WithOwner(secret).
-		WithSetOwnerReference(true, false).
-		ApplyObjects(&klum.Kubeconfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: userName,
+	return &klum.Kubeconfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: userName,
+		},
+		Spec: klum.KubeconfigSpec{
+			Clusters: []klum.NamedCluster{
+				{
+					Name: h.cfg.ContextName,
+					Cluster: klum.Cluster{
+						Server:                   h.cfg.Server,
+						CertificateAuthorityData: ca,
+					},
+				},
 			},
-			Spec: klum.KubeconfigSpec{
-				Clusters: []klum.NamedCluster{
-					{
-						Name: h.cfg.ContextName,
-						Cluster: klum.Cluster{
-							Server:                   h.cfg.Server,
-							CertificateAuthorityData: ca,
-						},
+			AuthInfos: []klum.NamedAuthInfo{
+				{
+					Name: h.cfg.ContextName,
+					AuthInfo: klum.AuthInfo{
+						Token: token,
 					},
 				},
-				AuthInfos: []klum.NamedAuthInfo{
-					{
-						Name: h.cfg.ContextName,
-						AuthInfo: klum.AuthInfo{
-							Token: token,
-						},
-					},
-				},
-				Contexts: []klum.NamedContext{
-					{
-						Name: h.cfg.ContextName,
-						Context: klum.Context{
-							Cluster:  h.cfg.ContextName,
-							AuthInfo: h.cfg.ContextName,
-						},
-					},
-				},
-				CurrentContext: h.cfg.ContextName,
 			},
-		})
+			Contexts: []klum.NamedContext{
+				{
+					Name: h.cfg.ContextName,
+					Context: klum.Context{
+						Cluster:  h.cfg.ContextName,
+						AuthInfo: h.cfg.ContextName,
+					},
+				},
+			},
+			CurrentContext: h.cfg.ContextName,
+		},
+	}
 }
 
 func setReady(status klum.UserStatus, ready bool) klum.UserStatus {

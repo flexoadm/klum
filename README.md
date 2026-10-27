@@ -161,10 +161,21 @@ generated clients, Kubeconfig persistence, and core/RBAC resource creation again
 real API servers. Unit tests use Kubernetes v0.36.5 validation libraries; the
 cluster matrix checks actual API compatibility across the four minor versions.
 
-This dependency update does **not** fix token Secret auto-generation: the original
-controller still waits for a ServiceAccount token Secret, which modern Kubernetes
-does not create automatically. End-to-end kubeconfig issuance and token rotation
-will be addressed separately; passing these API tests does not verify that flow.
+The integration suite also starts the controller and verifies kubeconfig issuance,
+authorized API access, disabling/re-enabling a user, and cleanup on deletion.
+
+### ServiceAccount token issuance
+
+Klum explicitly creates a `kubernetes.io/service-account-token` Secret for each new
+user and waits for the Kubernetes token controller to populate it. While waiting,
+the User's `Ready` condition is false with reason `WaitingForToken`; no empty-token
+kubeconfig is issued. The Secret's ServiceAccount UID must match the current account.
+Existing valid token Secrets referenced by a ServiceAccount are reused.
+
+Generated Secrets and kubeconfigs are owned by the User. Disabling a user removes
+the managed resources; re-enabling creates a new ServiceAccount and token.
+These tokens remain long-lived: expiration and automatic rotation are separate work.
+The control plane must have the standard ServiceAccount token controller enabled.
 
 ## CI and releases
 
